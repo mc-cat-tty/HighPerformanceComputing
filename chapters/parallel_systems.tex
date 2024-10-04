@@ -1,0 +1,179 @@
+\chapter{Parallel Systems}
+
+\section{Resources}
+\begin{enumerate}
+  \item Multicore Programming Primer (MIT)
+  \item Multicore Programming Primer (MIT)
+  \item Multicore Programming Primer (MIT)
+\end{enumerate}
+
+\section{History}
+TODO: first slides
+
+The curve plateaus due to the ...
+
+
+\section{Introduction}
+Main idea: replicate the same core IP already designed several times to improve software performance.
+Aware that performance can improve only if the software is adapted to this change.
+A rework of the software in needed to exploit the cluster of cores.
+
+Advantages: each core can be much simpler (shorter pipelines, less out of order execution, branch prediction, etc.) leading to a descent of price and power consumption.
+
+Disadvantages: a parallel architecture cannot provide infinte scaling of performance. Both the hardware and algorithms give limits on the performance.
+The first bottleneck is that not all the program can be parallelized.
+
+What about the transition from sequential to parallel programs?
+There were a huge amount of legacy code at the time parallel programming arose, so easy ways of dealing with parallelism emerged, such as auto-parallelization integrated in the compiler.
+
+\subsection{Flynn Taxonomy}
+\begin{center}
+
+\begin{tabular}{ |c|c|c| } 
+  \hline
+  Data stream & Single instruction stream & Multiple instruction stream \\ 
+  Single data stream & SISD & MISD \\ 
+  Multiple data stream & SIMD & MIMD \\ 
+  \hline
+\end{tabular}
+\end{center}
+
+Xilinx Versal's AI systolic accelerator is an example of hardware based on MISD model. May accelerate a 
+
+GPUs embody the SIMD model since we can compute multiple dadta streams against a single instruction, iff the operation in naturally parallelizable (without loop carried dependencies).
+See: ARM NEON instructions and Intel SSE extension.
+
+Lock-step execution model: 32 CUDA cores share the same fetch-decode unit; it's a bad idea to conditionally execute code depending on the core number.
+
+MIMD architectures have independent FD and LS units: they can execute independent flows against independent data streams. Warehouse Scale Computers and multi-core architectures are the most common example.
+
+\subsubsection{SIMD and Loop-unrolling Case Study}
+NVIDIA has its own terminology: STMD - Single Thread Multiple Data - refers to the SIMD model, but with coarser granularity.
+
+Due to the virtual memory isolation that the OS enforces, cross-processor operations are typically managed with the model of thread parallelism.
+Process parallelism is not a good idea since it is more complex and costly; processes don't naturally share the same address space.
+On the contrary, threads share the same address space (aka they have visibility of the same virtual memory) which is mapped to a common block of physical memory.
+
+Study: OS virtual memory and how data bus width is linked with virutal addressable memory and physical memory.
+
+Remember how single-core designs devoted a lot of transistors to improve ILP - Instruction Level Parallelism.
+A fair amount of chip area also went into blocks aimed to improvie DLP - Data Level Parallelism - such as NEON instructions and SEE extension.
+
+Embarassingly parallel: pieces of code or programs really easily parallelizable. Simplest example is a vector initialization with a literal.
+A more complex example can be manipulation of audio waves sampled from a microphone.
+
+Study: how register files changes in order to adapt to SIMD model, how writeback is influenced, etc.
+
+Many efforts address the optimization of loops since it is the structure in which pograms spend most of their time.
+Loop unrolling is such an optimization. In order to avoid false data dependencies between register, we have to perform register renaming.
+Loop unrolling makes more explicit SIMD optimization; moreover it reduces the control overhead of the original loop.
+
+Generalizing unrolling to a with of k. Given a loop that must be run $n$ times, the loop is unrolled \begin{verbatim} floor(n/k) \end{verbatim} times and followed by an epilogue that executes \begin{verbatim} n%k \end{verbatim} bodies of the loop.
+
+Finally, note that SIMD are just extensions of the CPU.
+
+\subsubsection{MIMD: basics and design paradigms}
+Memory architectures are divided into shared memory arch and distributed memory arch.
+
+Thread-level parallelism embodies MIMD model. By design we must have $n$ threads if we want to perfectly explot $n$ cores.
+We use TLP if the code executed in the thread is sufficiently large, and hence the overhead of setting up threads can be ammortized. 
+
+An instruction level paralellism, such as the one granted by GPGPUs, has a lower overhead but also some drawbacks we will see.
+
+Two primary patterns of multicore architecture design, differentiated by the location of the memory.
+\begin{itemize}
+  \item Shared Memory: one copy of data shared among many cores; absence of atomicity, need for synchronization, scalability issues. In between memory and cores there is an interconnection network.
+  \item Distributed Memory: each core has its own local memory, explicit data exchange between cores, however much more scalable and lacking of synch problem.
+\end{itemize}
+
+TODO: add diagrams
+
+Shared memory must ensure that critical sections are sequentially executed. Operations on the same variable must access it in the proper order. In general it is a synchronization issues.
+
+The problem of cache coherency is orthogonal to memory model and we will deal with it after in the course.
+
+Two main types of parallelism exist:
+\begin{itemize}
+  \item Data Parallelism: same operation on different data
+  \item Task (Control) Parallelism: different functions (control flows) distributed among several theads
+\end{itemize}
+
+Functions have been picked since they map well on this kind of model. They are the smallest unit of code that can be executed in parallel with its own control flow.
+
+The typical flow for control-level paralleism is the fork-join model (most common execution model for shared memory systems):
+the main process forks at some point and lets each thread execute independely;
+it is then in charge of synchronizing the execution of the threads through a so-called barrier (or join operation). Each function encapsulates its code flow.
+
+\section{Memory Models}
+\subsection{Shared Memory}
+Two varieties exist:
+\begin{itemize}
+  \item SMP - Symmetric Multi-Processors - implies a phisically shared memory common to the cores
+  \item DSM - Distributed Shared Memory - implies a phisically distributed memory. Typically found in supercomputers or large-scale computers.
+\end{itemize}
+
+In both cases the same global address space is shared amongst the workers.
+Distributed shared memory systems are implemented through a software abstraction. Data sharing between clusters is performed via a software layer.
+Distributed refers to the fact that both local and global pieces of memory are available to the processors.
+
+In SMP the access latency to memory is uniform for workers. In DSM usually a NUMA - Non-Uniform Access time - pattern arises.
+In this kind of model each cluster has its private memory (scratchpad in case of on-silicon workers) that can access a common memory through a bus shared with other clusters.
+A scratchpad is explicit use memory, not transparent as caches, usually tightly coupled to the core.
+
+Crossbar: completely connected mesh between some nodes. Usually used to implement shared buses to interconnect processors and memories.
+Really costly from silicon and economical standpoints.
+
+Network-on-chip is scalable deisgn paridgm (compared to crossbars) to interconnect processors and memories.
+It is a completely connected switch, in which a node can reach any other node traversing the switch; the traversal time is counted in term of hops.
+Depending on the time the processor needs to take towards the memory, the access time varies. The non-uniform access arises from this difference.
+
+A large number of cores system requires a switch. Unless the number of cores is huge, like in a 4-cores CPU, the crossbar is perfectly fine and leads to some perfomance improvements due to uniform access time.
+
+Several problems arise in a shared memory architecture:
+\begin{itemize}
+  \item Cache coherence problem: caches hold copies of original data, how can we keep them coherent among processors? 
+  \item Memory consistency issue: transactions order impacts the performance and the validity of data?
+  \item Synchronization issue: how are accesses to shared memory and to critical sections managed?
+\end{itemize}
+
+\subsection{Distributed Memory}
+This pattern is incoherent by design: each time a generic processor requires a data X, there are n places to look.
+Each processor has its own copy of X, that may vary.
+
+\subsubsection{Message Passing Model}
+Message passing model is suitable for multicore systems and distributed supercomputers.
+A node (usually a cluster of processors) requires a data to another node, which provides it to the requester.
+
+Inside each node libraries such as OpenMP are used to explit all cores.
+Between nodes middlewares such as MPI - Message Passing Interface - is used to pass messages and keep data coherent.
+
+See: www.mpi-forum.org
+
+The message passing model entails explicit message send and receive operations, send specifies local buffer plus a receiving process on remote computer.
+Receive specifies sending process on remote computer plus a local buffer to place incoming data.
+
+Typically, in order to avoid blocking the CPU, we may want to share data asynchronously, for instance through DMA.
+This allows the receiving node to continue computation while waiting data.
+
+Assuming we want to calculate the euclidean distance between every pair of points store in two arrays, storing the values in a matrix, we can speed up the computation like this, given two workers (nodes with message passing capabilities):
+\begin{enumerate}
+  \item copy data from master/host processor to coprocessor
+  \item receive data on the coprocessor
+  \item compute data in parallel
+  \item send data from the coprocessor to the host
+  \item receive data on the host and merge data
+\end{enumerate}
+
+A desirable property to effectively exploit this kind of parallelism is that the size of data, or the computation in general, is much larger compared to the transfer time.
+A formal way to express it is compute/memory bound programs.
+In a memory-bound problem no noticeable speedup is offered by parallelism. On the contrary, compute-bound problems benefit from parallelism.
+
+The ration between memory and compute instructions can express if the problem is memory or compute bound: $\frac{#M}{#C}$ where $#$ represents a number of instructions.
+
+\subsection{Comparison}
+Shared-memory is compatible with well-understood language models, however some issues related to dynamic memory (think about linked lists) can arise.
+Also, synchronization must be guaranteed. More efficient for small items.
+
+Distributed-memory requires explicit data sharing, leading to free synchronization.
+Ease of hardware implementation is a strong point of this model.
+However, the cost of setup is much larger than shared-memory model, so is convenient to pay the price of the overhead only in case of compute-bound algorithms.
