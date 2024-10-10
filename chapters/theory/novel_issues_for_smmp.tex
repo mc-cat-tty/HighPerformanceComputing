@@ -1,0 +1,343 @@
+\chapter{Novel Issue for Shared-Memory Multi-Processors}
+\section{Wanted Properties}
+\begin{enumerate}
+  \item Coherency: deals with mantaining up-to-date data in private memories of distributed shared memories
+  \item Synchronization: are shared resources protected from concurrent accesses
+  \item Consistency: TODO
+\end{enumerate}
+
+\section{Coherency}
+For IO the memory is usually direct physical memory: no pagination no caching.
+
+In order to avoid cache incoherency we can bus the caches.
+An interconnection network connects the caches and takes care of invaliding old data in private cores' caches, by monitoring the transactions on the bus.
+This specific task is performed by the cache snooper. A snoopy cache monitors the transactions on the cache bus and keeps coherent data in local caches.
+
+How does snoopy cache coherency protocols work?
+
+\begin{itemize}
+  \item write miss: the address is invalidated in all other caches before the write is performed
+  \item read miss: TODO
+\end{itemize}
+
+The simple form of cache coherency protocol is MSI - Modified Shared Invalid - protocol.
+These three states are the states assigned to each cache line. Each cache line can have just one of the three states in a given moment.
+
+Refresher on direct-mapped caches: starting from the assimption that memory is byte-addressable, meaning that is split up in 1 byte chunks, we assing a unique address to each byte.
+The address has a length that depends on the size of addressable memory. In order to use an address in a direct-mapped cache we need to divide up the address in tag-index-offset bits.
+Two to the power of the number of offset bits gives us the size, in bytes, of each cache line.
+The index is used to index cache entries.
+The tag is needed to disambiguate between indexes, since each index maps to several different memory areas.
+
+We extend this to introduce 2 state bits that hold M/S/I.
+Modified means that I hold the most recent and modified copy of the line.
+Shared is the rest state.
+Invalid state means I don't own the most recent copy.
+
+TODO: copy state machine
+
+The lazy/eager approach propagates data only if the data is accessed (read) by another processor.
+This is because we want to pay the cost of propagation in case if someone else tries to read the data.
+
+When other processors ask for the same data I hold in the modified state, I must write back data to the main memory and move myself and other processors to the shared state.
+
+Beware that if you are the only one that keeps the copy of cache line, and no one holds the same cache line there is no need to propagate invalid state.
+Also keep in mind that the modified state is ensured to be set only on one processor for each cache line. It must be unique due to the lazy model we follow.
+
+This protocol has the drawback that generates worth of additional transactions, on top of the data movements produced by our program.
+
+When any prcessor has cache miss or writes notify other processors via interconnection network. Only if reading many processors can have copies, if writing just one will be valid.
+
+How to reduce coherency traffic? if a single processor reads and writes a cache line used just by himself, the data can be private. 
+If the data are private we can avoid sharing coherency information between processors.
+
+Example:
+\begin{verbatim}
+  int s=0;
+  for (int i=0; i<N; i++) {
+    s += A[i];
+  }
+\end{verbatim}
+
+The loop index can be a private variable.
+
+We therefore enhance the MSI protocol introducing a state that reflects that: \textit{E} - Exclusive but unmodified - state marks private cache lines.
+The \textit{M} state now means "exclusively modified".
+
+TODO: FSM
+
+\subsection{Coherency Misses}
+The granularity of the cache line depends on the number of offset bits. The granularity can influence the trueness of the cache miss.
+
+True sharing miss: processors are handling same variable, locations are properly mapped to the same cache line.
+False sharing miss: processors are handling different variables of locations but mapped to the same cache line.
+
+New type of cache miss: coherency miss.
+
+TODO: report example
+
+A coherency false sharing miss is due to the mapping on cache lines.
+
+How software is written impacts on these phenomena. Spacing data through the use of padding could improve performance. Padding mitigates these problems by moving data on different cache lines.
+
+TODO: recupera diagrams and histogram
+
+\subsection{Cache Coherent System}
+The CC system must provide a set of states and its respective transition diagram. TODO: continua su additional comuncation , location of the address, invalid signals exchange
+
+\subsection{Directory-base Approach}
+TODO: completa tutto
+The bigger problem of snooping scheme is clearly the broadcasting mechanism used by caches to share the state of the cache lines.
+
+An alternative solution to avoid broadcasting relies on a scheme based on directories to store such information.
+
+The major downisde of directory approach is size, as a matter of fact we are seeing size reduction techniques in the next paragraphs.
+
+\section{Synchronization}
+Deals with keeping data consistend by avoding racing conditions through protection mechanisms on shared variable.
+
+Keep in mind that under this problem always lies at least one write operation.
+
+The motivation is far clearer if explained with the "too much milk problem": two roommates share the same fridge and its content; the first one check if there is enough milk in the fridge at 3PM, founding no milk he goes to the store, arriving there at 3:15PM; the second roomate check for milk in the fridge at 3:15PM and founding no milk leaves for the store; at the end of the story they both come back home with a bottle of milk.
+
+Takeaway: people need coordination and so do threads
+
+The problem arises in shared memory paradigm with several theads that implement control-level parallelism.
+
+Private (eg. stack) variables don't create any problem like this one.
+A set of shared variables (static, shared common blocks, and global heap) is typically available to a number of threads. Synchronization is required to protect this kind of variables.
+
+A race condition occurs when two concurrent threads or processes access the same shared variable with at least one write operation.
+
+Example:
+\begin{verbatim}
+  THREAD 1
+  compute square(A[1])
+\end{verbatim}
+
+
+The outcome of the program could be 34, 9, or 25 depending on the execution order 
+
+An update operation is comprised of 3 sub-operations: read, compute and write (back).
+
+The only atomic operations of an ISA are read and write meaning that they cannot be interrupted.
+
+Beware that, for instance, \begin{verbatim} x+=10 \end{verbatim} is not atomic.
+
+Some definitions:
+\begin{itemize}
+  \item Synchronization: using atomic operations to ensure cooperation between workers
+  \item Mutual exclusion: ensure that only one thread at a time carries out an operation on a variable.
+  \item Critical section: piece of code that only one thread at a time can execute.
+\end{itemize}
+
+In order to reach the cooperation different forms of synchronization exist: mutual exclusion, or event synchronization.
+Event synchronization is further split into point-to-point, group, and global synchronization (barriers).
+
+Remember that barriers are used in the fork-join paradigm. They imply stalling -- doing idle activity -- the fastest threads.
+
+\subsection{Synchronization Primitives}
+Lock is the simplest form of synchronization primitive: prevents someone form doing something.
+
+How to use it? lock before entering the critical section and before accessing shared data; unlock when leaving, after shared data are accessed.
+
+All synchronization involves waiting, which is in stark contrast with the fundamental idea of parallelization.
+
+The granularity of synchronization reflects on program performance.
+A corse granularity implies waiting several time, so much that we could have no speedup from parallelization.
+
+Too much milk solution 1:
+\begin{verbatim}
+TODO: copy
+\end{verbatim}
+
+We need additional hardware instruction to deal with this problem.
+The hardware support different instructions depending on the ISA: test and set, swap, and compare and swap.
+
+Notice that all the following pseudo-codes are executed in an atomic manner.
+
+Test and set (in most architectures):
+\begin{verbatim}
+test&set(&address) {
+  result = M[address];
+  M[address] = 1;
+  return result;
+}
+\end{verbatim}
+
+Ensure that just the first worker gets the lock. The cleanup is carried out by a write 0 operation.
+
+Swap instruction (implemented by X86 ISA):
+\begin{verbatim}
+  test&set(&address, register) {
+    tmp = M[address];
+    m[address] = register;
+    register = tmp;
+  }
+\end{verbatim}
+
+Compare and swap instruction (implemented by 68000 ISA):
+\begin{verbatim}
+  compare&swap(&address, reg1, reg1) {
+    if(reg1 == M[address]) {
+      M[address] = reg2;
+      return success;
+    }
+    else {
+      return failure;
+    }
+  }
+\end{verbatim}
+
+Lock implementation with test&set:
+\begin{verbatim}
+  int value = 0;  // Free
+  
+  do_acquire() {
+    while (not test&set(value)) ;  // Busy wait
+    // Value 1 for sure if we reach this point 
+  }
+  
+  do_release() {
+    value = 0;  // Free lock agains
+  }
+\end{verbatim}
+
+
+\subsubsection{Improvements}
+We already reasoned about granularity. In case of an addition, we can rearrange the operations, since the sum operation is associative.
+Turning into a finer lock granularity we can reduce the sharing frequency; this can imporve speed while mantaining the right semantic.
+
+For instance, the example with two workers can be reworked in this way:
+\begin{verbatim}
+  static int s = 0;
+
+  WORKER 1
+  int local_sum1 = 0;
+  for (int i=0; i<len(s)/2; i++) local_sum1 += A[i];  
+  lock();
+  s += local_sum1;
+  unlock();
+
+  WORKER 2
+  int local_sum2 = 0;
+  for (int i=len(s)/2; i<len(s); i++) local_sum2 += A[i];  
+  lock();
+  s += local_sum2;
+  unlock();
+
+\end{verbatim}
+
+\subsubsection{Performance Criteria}
+When busy waiting .... TODO: complete
+
+Contention is another property we study to measure how much time we have to wait before getting the lock. TODO: check.
+
+Latency: time per operation. TODO
+
+Bandwidth: TODO
+
+Traffic: is a metric that measures the number of coherency transaction that are produced by the locking algorithm.
+
+Stirage: about the fact that we need more memory to keep track of the status of individual threads and shared variables.
+Depending on the locking algorithm we can note down a different quantity of information.
+
+Fairness: keeps into account how much the threads' execution is balanced.
+Non functional property related to the fact that in a parallel system we shold allow each thread to perform its operations.
+
+Test and set locking algorithm involves a lot of unneeded coherency transaction due to the busy wait.
+This create lots of pressure on the coherency controller/bus. Bus contention is usually kept out of the benchmarks about coherency traffic.
+The big issue lies on the huge number of write operations carried out in the ts operation implemented in the busy wait.
+
+How to improve? we could notify the sleeping threads that are waiting the lock.
+This is a purely reactive (event-based) approach, we loose some time for the reaction (reaction time not zero).
+
+Proposed solution: test&test&set lock.
+\begin{verbatim}
+  bool lock(volatile bool *lock) {
+    while (true) {
+      while (*lock != 0) ;  // Bunch of test intructions
+      if (test_and_set(address) == 0) {
+        return;
+      }
+    }
+  }
+
+  void unlock(volatile bool *lock) {
+    *lock = 0;
+  }
+\end{verbatim}
+
+The downside is that we can no longer ensure that as soon as the lock becomes zero we acquire the lock. Someone else could take it.
+
+This algorithms has the same storage footprint as ordinary test and set. No faireness in provisioned as in the original algo.
+
+A second proposal: test and set with exponential backoff.
+\begin{verbatim}
+  TODO: code
+\end{verbatim}
+
+Major downsides are unreactiveness and severe unfairness.
+The latter problem refers to the fact that processors running for longer time get more affected by the backoff.
+Newer contenders have to wait shorter backoff times than older ones.
+
+More sophisticate implementation is ticket lock.
+\begin{verbatim}
+  TODO: code
+\end{verbatim}
+
+Be careful: the increment operation is atomic (like i++) but without involving three different asm operations.
+
+Array-based lock: TODO: idea.
+\begin{verbatim}
+  TODO: code
+\end{verbatim}
+
+The major downside is storage consumtpion
+
+If energy consumption is the more concern we can remove the clock of the core to reduce dynamic power consumption of the thread/core.
+Completely shutting down the core would allow us to literally remove power consumption (both static and dynamic) of the core at the cost of really slow restart time.
+Shutting down cores is therefore suitable for small embedded system in which reactveness is not a requirement.
+
+\section{Consistency}
+Far more subtle problems arise in concurrent systems. Problems that were not a problem so far.
+
+Memory model: we can think of it as a sort of contrac between the hardware and the software.
+As programmers we should fully understand it in order to properly write high quality programs.
+
+Refresher on data harards: happen when subsequent instruction share data dependency. Remember the pipeline stages: IF, ID, EX, MEM, WB.
+For instance an instruction computes a results and stores in the register file.
+The next instruction depends upon the register wrote down by the previous instruction.
+Depending on which stage (execute or memory) the result is computed, we can or cannot pipeline them.
+If execute stage is the one that computes the result we can rely on a forward unit if present on the system.
+If memory state is the one that computes the result we cannot rely on that additional hardware. In this case a bubble is needed.
+
+What we built so far could be wrong for parallel system.
+TODO: reordering at different levels scheme
+
+For instance, reordering of instructions that access different variables:
+\begin{verbatim}
+  TODO: code slide 11
+\end{verbatim}
+
+Memory operation ordering .
+
+A sequentially consistent memory model is the first one to be proposed and has a very strict defintion: TODO: definition from lamport.
+The idea is that instruction memory order is valid for any interleaving of instruction as long as the ordering of each processor is preserved (TODO: check).
+
+With this model we are getting no boost from parallel execution.
+
+TODO: 140 cycles calculation
+
+A different model could be relaxed memory consistency model.
+The key idea is allowing R/W to complete out-of-order. Different orderings can be relaxed: TODO: examples pag 26.
+
+We will stress the fact that latency hiding can boost up parallel execution by performing memory accesses in parallel.
+Allowing reads to move ahead of writes.
+Write buffering is a common processor optimization that allows reads to proceed in front of prior writes.
+
+Total Store Ordering: a processor P can read B before its write to A is seen by other processors.
+
+The implication is PC - Program Consistency.
+
+Program Consistency: TODO
